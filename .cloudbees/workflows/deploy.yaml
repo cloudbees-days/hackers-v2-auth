@@ -13,16 +13,53 @@ on:
       environment:
         type: string
         required: true
+  workflow_dispatch:
+    inputs:
+      artifact-id:
+        type: string
+        required: true
+      artifactVersion:
+        type: string
+        required: true
+        default: latest
+      environment:
+        type: string
+        required: true
 
 jobs:
   deploy:
-    uses: cloudbees-days/hackers-v2-workflows/helm-deploy.yaml
-    vars: inherit
-    secrets: inherit
-    with:
-      artifact-id: ${{ inputs.artifact-id }}
-      artifactVersion: ${{ inputs.artifactVersion }}
-      environment: ${{ inputs.environment }}
-      hostname: hackers-auth.${{ inputs.environment }}.preview.cb-demos.io
-      appName: hackers-auth
-      repo: cloudbees-days/hackers-v2-auth
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout
+        uses: cloudbees-io/checkout@v1
+        with:
+          repository: cloudbees-days/hackers-v2-auth
+      - uses: cloudbees-days/setup-kubeconfig
+        name: Set kubeconfig
+        with:
+          kubeconfig: ${{ secrets.KUBECONFIG }}
+      - id: install-chart
+        name: Install helm chart
+        uses: cloudbees-io/helm-install@v1
+        with:
+          chart-location: ${{ cloudbees.workspace }}/chart
+          release-name: hackers-auth
+          namespace: ${{ vars.namespace }}
+          values: |
+            image:
+              repository: ${{ vars.DOCKER_USER }}/hackers-auth
+              tag: ${{ inputs.artifactVersion }}
+            hostname: hackers-auth.${{ inputs.environment }}.preview.cb-demos.io
+      - name: Register deployed artifact
+        uses: cloudbees-io/register-deployed-artifact@v2
+        with:
+          artifact-id: ${{ inputs.artifact-id }}
+      - name: Publish evidence
+        uses: cloudbees-io/publish-evidence-item@v1
+        with:
+          content: |-
+            ## Deployed environment
+            [Dev frontend](https://hackers-auth.${{ inputs.environment }}.preview.cb-demos.io/)
+
+            Running hackers-auth:${{ inputs.artifactVersion }}
+          format: MARKDOWN
